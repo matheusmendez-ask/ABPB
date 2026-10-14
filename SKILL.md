@@ -16,11 +16,21 @@ Automate the design and implementation of enterprise-grade, pure Python API extr
 
 ### Step 1: Scrape and Parse the API Documentation
 
-Adapt the extraction strategy based on how the documentation is hosted or provided:
+For a URL or a local spec/HTML file, start with the bundled inspector (stdlib only, prints JSON):
 
-1. **Discover OpenAPI / Swagger Specs First**: Many modern documentation portals (Swagger UI, Redoc, Stoplight, ReadMe) render via client-side JavaScript. Before parsing raw HTML, inspect or probe common specification endpoints relative to the base URL (`/openapi.json`, `/swagger.json`, `/v3/api-docs`, `/api-docs`, `/swagger.yaml`).
-2. **Inspect HTML Tables & Code Blocks**: For custom or legacy ERP documentation (e.g., Tiny ERP, Bling, Omie, Totvs, OData portals), extract endpoint paths, HTTP methods (`GET` vs `POST application/x-www-form-urlencoded` or `application/json`), parameter tables, rate limit rules, OAuth2 token endpoints, and error code tables directly from the documentation pages.
-3. **Handle Raw Text or cURL**: If the user pastes raw documentation text, Markdown, or cURL commands, parse the HTTP method, URL path, query/form parameters, headers, request body keys, and sample JSON responses directly.
+```bash
+python scripts/doc_scraper.py <docs-url-or-file> > api_map.json
+```
+
+It probes common OpenAPI paths (`/openapi.json`, `/swagger.json`, `/v3/api-docs`, ...) and links embedded in the page. When it finds a JSON spec, the output (`doc_type: "OpenAPI/Swagger"`) already lists endpoints, parameters, auth schemes, response keys and a `suggested_pattern` per endpoint. Otherwise it falls back to HTML analysis: parameter tables, error-code tables, JSON samples, rate-limit headers, and REST/RPC endpoints (`.php`, `.asmx`).
+
+Then adapt:
+
+1. **Index page with no endpoints** (one page per endpoint, e.g. Tiny ERP `api-docs/api` linking to `api2-*` pages): re-run with `--crawl-depth 1` (raise `--max-pages`, default 50, for large portals). The crawler only follows links on the same host under the start URL's directory. Read the merged `discovered_endpoints` (each one carries `found_on`), then open the `pages[]` entry of each endpoint the user wants for its parameter and error tables.
+2. **JS-rendered portals** (Swagger UI, Redoc, Stoplight, ReadMe with no spec found, empty `headings`/`tables`): the HTML has no content to parse. Look for the spec URL in the browser's network tab or ask the user for the exported spec. `unparsed_yaml_spec_links` means a YAML spec exists, but the stdlib cannot parse it, so ask for the JSON version or read the YAML directly.
+3. **Raw text or cURL**: if the user pastes raw documentation text, Markdown, or cURL commands, parse the HTTP method, URL path, query/form parameters, headers, request body keys, and sample JSON responses directly. The script is not needed.
+
+Treat the scraper output as leads, not truth. Confirm each endpoint, date format, and error code against the page text before mapping it.
 
 ### Step 2: Map Key-Value Variables
 
@@ -53,9 +63,11 @@ Evaluate the mapped keys and API capabilities for each endpoint to recommend the
 | **N+1 Detail Enrichment (`with_details`)** | List endpoint returns summary records (`pedidos.pesquisa`) requiring a detail call per ID (`pedido.obter`). | Micro-batched concurrent extraction (`ThreadPoolExecutor` capped at a safe fraction of the rate limit) flushing details per batch/window with **Dead-Letter Queue (DLQ)** isolation for poison-pill IDs. |
 | **Async Job Polling** | Report/export endpoints returning a `job_id` or `status_url` (`HTTP 202 Accepted`). | 3-stage pipeline: trigger job (`POST`), poll status loop with full-jitter backoff (`GET`), and download raw result. |
 
+Before generating code, show the user the key-value map and the pattern chosen for each endpoint, and confirm them. A wrong date format or a misclassified error code is cheap to fix here and expensive after a multi-hour load.
+
 ### Step 4: Generate the Enterprise Pure Python Bronze Pipeline
 
-Generate a complete, modular, ready-to-run pure Python script following the patterns in `references/bronze_pipeline_templates.md`:
+Generate a complete, modular, ready-to-run pure Python script following the patterns in `references/bronze_pipeline_templates.md`. Use the finished examples as reference implementations: `examples/tiny_bronze_pipeline.py` (RPC, form-urlencoded, HTTP 200 errors, date windows, N+1) and `examples/openlibrary_bronze_pipeline.py` (REST, recent-changes feed, N+1). Ship a matching `.env.example` (see `examples/.env.example`).
 
 - **Zero External Dependencies**: Use only the Python standard library (`urllib.request`, `urllib.parse`, `gzip`, `random`, `json`, `time`, `os`, `datetime`, `pathlib`, `hashlib`, `logging`, `threading`, `concurrent.futures`, `argparse`) plus a built-in minimal `.env` loader.
 - **Thread-Safe OAuth2 / Token Lifecycle (`TokenManager`)**: Automatically manage static tokens or OAuth2 token refresh (`client_credentials` / `refresh_token`) with expiry buffer and thread-safe locking on `HTTP 401` recovery.
@@ -66,7 +78,12 @@ Generate a complete, modular, ready-to-run pure Python script following the patt
   - Support native `gzip` compression (`compress_gzip: True`) writing to `.jsonl.gz.tmp` and atomically renaming on close (`BronzeWriter`).
   - Commit data and advance the watermark **per completed date window or micro-batch** so long historical loads never lose progress.
 - **Dead-Letter Queue (DLQ) for Poison-Pill Records**: In N+1 detail extraction or batch loops, isolate non-retryable per-record failures into `bronze/{source_name}/_dlq/{endpoint}/ingestion_date=YYYY-MM-DD/dlq_{run_id}.jsonl.gz` with error context instead of crashing the entire job.
-- **Structured Run Telemetry (`_run_manifest.json`)**: Emit a machine-readable manifest at the end of every run recording `run_id`, `duration_seconds`, `http_requests`, `retries`, `records_written`, `dlq_records`, and `watermarks` per endpoint for observability in Airflow, Prefect, Dagster, or Databricks.
+- **Structured Run Telemetry (`_state/manifests/<source_name>_<run_id>_manifest.json`)**: Emit a machine-readable manifest at the end of every run recording `run_id`, `duration_seconds`, `http_requests_total`, `retries_total`, `records_written`, `dlq_records`, and watermarks per endpoint for observability in Airflow, Prefect, Dagster, or Databricks.
+
+### Step 5: Verify Before Handing Off
+
+- `python -m py_compile <pipeline>.py` and `python <pipeline>.py --help` must succeed.
+- If the user has credentials available, run a smoke extraction limited to one endpoint and a short window (`--endpoints <one> --start-date <recent>`). Then check that one Bronze file, the watermark, and the manifest were written. If no credentials are available, say that the pipeline was not run against the live API.
 - **Bronze Medallion Envelope**: Preserve the unmodified API record inside `raw_payload` alongside `_ingestion_timestamp`, `_run_id`, `_source_name`, `_source_endpoint`, `_request_params`, `_record_id`, and `_payload_hash` (SHA-256).
 
 ## Gotchas
@@ -75,4 +92,5 @@ Generate a complete, modular, ready-to-run pure Python script following the patt
 - **Thundering Herd on Retries**: Never use deterministic sleep intervals when running multi-threaded `ThreadPoolExecutor` extractions. Always apply `random.uniform` full jitter.
 - **Mid-Run Token Expiration**: Long historical loads or N+1 runs often exceed 1-hour OAuth2 token TTLs. Always route auth headers through `TokenManager` and trigger `force_refresh()` on `HTTP 401`.
 - **Unbounded N+1 Memory & Poison Pills**: Process N+1 details in bounded micro-batches per window and route failed individual IDs to the DLQ writer rather than aborting a multi-hour run.
+- **Scraper False Positives**: Endpoint discovery skips `<script>` bodies, but URLs in visible text, such as a third-party SDK in a code sample, still show up. Drop endpoints whose host is not the API host.
 - **Credential Leakage in Bronze Metadata**: Strip any auth keys (`token`, `access_token`, `api_key`) from `_request_params` before persisting Bronze rows or DLQ entries.

@@ -32,7 +32,7 @@ When you ask a standard LLM to *"build an extraction script for API X"*, it typi
 - **🧱 Atomic Gzip Bronze Writer (`.jsonl.gz`):** Writes to `.jsonl.gz.tmp` and atomically renames on close, preventing corrupted files and reducing Bronze storage footprint by up to 85%.
 - **🛡️ Per-Window Checkpointing & Micro-Batched `N+1`:** Commits data files and advances watermarks after every date window or micro-batch.
 - **☣️ Dead-Letter Queue (DLQ) Isolation:** Poison-pill records during `N+1` detail calls are routed to `_dlq/{endpoint}/` with error context instead of crashing multi-hour jobs.
-- **📊 Machine-Readable Run Telemetry (`_manifest.json`):** Emits execution metrics (`http_requests_total`, `retries_total`, `records_written`, `dlq_records`, `watermarks_before_after`) ready for Airflow/Prefect/Dagster observability.
+- **📊 Machine-Readable Run Telemetry (`<source>_<run_id>_manifest.json`):** Emits execution metrics (`http_requests_total`, `retries_total`, `records_written`, `dlq_records`, `watermarks_before_after`) ready for Airflow/Prefect/Dagster observability.
 
 ---
 
@@ -43,7 +43,7 @@ Clone directly into your project's `.claude/skills/` directory (or global `~/.cl
 
 ```bash
 mkdir -p .claude/skills
-git clone https://github.com/YOUR_USERNAME/api-bronze-pipeline-builder.git .claude/skills/api-bronze-pipeline-builder
+git clone https://github.com/matheusmendez-ask/ABPB.git .claude/skills/api-bronze-pipeline-builder
 ```
 
 ### 2. Cursor IDE (`.cursor/rules`)
@@ -51,7 +51,7 @@ Copy the skill and template into your project rules:
 
 ```bash
 mkdir -p .cursor/rules
-git clone https://github.com/YOUR_USERNAME/api-bronze-pipeline-builder.git .skills/api-bronze-pipeline-builder
+git clone https://github.com/matheusmendez-ask/ABPB.git .skills/api-bronze-pipeline-builder
 cp .skills/api-bronze-pipeline-builder/SKILL.md .cursor/rules/api-bronze-pipeline-builder.mdc
 ```
 
@@ -63,6 +63,18 @@ You can inspect any API documentation URL or local OpenAPI file directly from yo
 
 ```bash
 python3 scripts/doc_scraper.py https://petstore3.swagger.io/api/v3/openapi.json > api_map.json
+```
+
+For HTML portals whose index page only links to one page per endpoint (e.g. Tiny ERP), crawl the child pages under the same path prefix:
+
+```bash
+python3 scripts/doc_scraper.py https://tiny.com.br/api-docs/api --crawl-depth 1 --max-pages 300 > api_map.json
+```
+
+Run the scraper's regression tests (stdlib `unittest`, no install needed):
+
+```bash
+python3 -m unittest discover tests
 ```
 
 ---
@@ -132,7 +144,7 @@ Pedir para uma IA comum *"gerar um script para extrair dados da API X"* geralmen
 4. **Escrita Atômica Compactada (`.jsonl.gz`):** Grava em arquivo temporário `.jsonl.gz.tmp` e renomeia atomicamente ao concluir, economizando até 85% de armazenamento e garantindo zero arquivos corrompidos.
 5. **Checkpointing por Janela & Enriquecimento `N+1` em Micro-Lotes:** Salva os dados e avança o *watermark* a cada janela de datas concluída (ex.: janelas de 30 dias).
 6. **Dead-Letter Queue (`_dlq`) Nativa:** Se um ID específico falhar no enriquecimento `N+1` (ex.: `pedido.obter.php`), ele é isolado na pasta `_dlq/` com a mensagem de erro sem derrubar o pipeline.
-7. **Manifesto de Telemetria (`_manifest.json`):** Ao final de cada execução, gera um JSON estruturado com duração, total de requisições HTTP, retries, refreshes de token, registros gravados e evolução dos watermarks.
+7. **Manifesto de Telemetria (`<source>_<run_id>_manifest.json`):** Ao final de cada execução, gera um JSON estruturado com duração, total de requisições HTTP, retries, refreshes de token, registros gravados e evolução dos watermarks.
 
 ---
 
