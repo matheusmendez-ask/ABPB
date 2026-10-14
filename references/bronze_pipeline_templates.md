@@ -326,7 +326,7 @@ def _to_int(value: Any) -> Optional[int]:
 def _full_jitter_backoff(attempt: int, base: float = 2.0, cap: float = 120.0) -> float:
     """AWS-style Exponential Backoff with Full Jitter to prevent thundering herd."""
     ceiling = min(cap, base * (2 ** (attempt - 1)))
-    return random.uniform(ceiling * 0.5, ceiling)
+    return random.uniform(0, ceiling)
 
 
 def call_api(

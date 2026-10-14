@@ -258,7 +258,7 @@ def _to_int(value: Any) -> Optional[int]:
 def _full_jitter_backoff(attempt: int, base: float = 2.0, cap: float = 60.0) -> float:
     """Exponential Backoff com Full Jitter para mitigar thundering herd."""
     ceiling = min(cap, base * (2 ** (attempt - 1)))
-    return random.uniform(ceiling * 0.5, ceiling)
+    return random.uniform(0, ceiling)
 
 
 def build_user_agent() -> str:

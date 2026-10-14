@@ -188,8 +188,7 @@ api-bronze-pipeline-builder/
 │   └── doc_scraper.py                 # Inspetor OpenAPI + HTML/RPC zero-dependências
 └── examples/                          # Exemplos reais gerados pela skill
     ├── tiny_bronze_pipeline.py        # Pipeline Tiny ERP V2 (RPC + N+1 + Rate Limit)
-    ├── openlibrary_bronze_pipeline.py # Pipeline Open Library (REST + Recent Changes + N+1)
-    └── bcb_bronze_pipeline.py         # Pipeline Banco Central (Olinda OData + SGS)
+    └── openlibrary_bronze_pipeline.py # Pipeline Open Library (REST + Recent Changes + N+1)
 ```
 
 ---
